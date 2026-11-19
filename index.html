@@ -55,6 +55,7 @@
   .subjectcard{text-align:center;padding:22px 16px}
   .subjectcard .ico{font-size:40px;line-height:1}
   .subjectcard .num{font-size:30px;margin-top:6px}
+  .bosscard{grid-column:1 / -1;border-color:var(--gold);background:linear-gradient(180deg,#201a3a,#141b40)}
 
   .strandgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
   .scard{display:flex;gap:12px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;text-align:left;color:var(--ink);transition:transform .12s,border-color .12s}
@@ -782,7 +783,7 @@ function pointsFor(n){const a=[];for(let i=0;i<n;i++){a.push(BASE[n===1?9:Math.r
 function cpsFor(n){const set=new Set([0,Math.floor(n/3),Math.floor(2*n/3)]);return [...set].sort((x,y)=>x-y);}
 
 const S={subject:null,grade:null,strand:null,bank:null,points:[],cps:[],n:0,qi:0,pick:null,removed:[],
-  display:[],correctIdx:0,life:{fifty:false,lab:false,clue:false},vex:90,phase:"menu",beaten:{}};
+  display:[],correctIdx:0,life:{fifty:false,lab:false,clue:false},vex:90,phase:"menu",boss:false,beaten:{}};
 const SAVEKEY="duelofminds_combined_v1";
 
 const $=id=>document.getElementById(id);
@@ -806,6 +807,12 @@ function buildSubjectSelect(){
     b.onclick=()=>{S.subject=key;buildMenu();};
     grid.appendChild(b);
   });
+  const boss=document.createElement("button");boss.className="gcard subjectcard bosscard";
+  boss.innerHTML="<div class='ico'>\uD83D\uDC51</div><div class='num' style='color:#ffd24a'>Master of All</div>"
+    +"<div class='desc'>BOSS CHALLENGE \u00B7 60 questions from every subject &amp; level</div>"
+    +(S.beaten["MASTER"]?"<div class='beat'>\u2713 Boss defeated!</div>":"");
+  boss.onclick=()=>startBoss();
+  grid.appendChild(boss);
   show(subjectScreen);
 }
 
@@ -868,8 +875,26 @@ function buildMixBank(n){
   let all=[];Object.keys(GR()[n]).forEach(k=>{all=all.concat(GR()[n][k].bank.map(q=>Object.assign({},q)));});
   return shuffle(all).slice(0,10);
 }
+function poolAll(){
+  let all=[];
+  Object.keys(SUBJECTS).forEach(subj=>{const g=SUBJECTS[subj].grades;Object.keys(g).forEach(n=>{Object.keys(g[n]).forEach(k=>{all=all.concat(g[n][k].bank.map(q=>Object.assign({},q)));});});});
+  return all;
+}
+function startBoss(){
+  S.boss=true;S.subject=null;S.grade=null;S.strand="MASTER";
+  S.bank=shuffle(poolAll()).slice(0,60);
+  S.n=S.bank.length;S.points=pointsFor(S.n);S.cps=cpsFor(S.n);
+  S.qi=0;S.vex=99;S.life={fifty:false,lab:false,clue:false};
+  $("subjPill").textContent="Master of All";
+  $("gradePill").textContent="BOSS";
+  $("strandPill").textContent="60 questions";
+  $("quitBtn").textContent="Quit boss";
+  show(game);
+  say("You dare face the FINAL challenge? Sixty questions from EVERY subject. You will never beat me!","");
+  renderQuestion();
+}
 function startStrand(n,letter){
-  S.grade=n;S.strand=letter;
+  S.grade=n;S.strand=letter;S.boss=false;$("quitBtn").textContent="Back to strands";
   S.bank=letter==="MIX"?buildMixBank(n):shuffle(GR()[n][letter].bank.map(q=>Object.assign({},q)));
   S.n=S.bank.length;S.points=pointsFor(S.n);S.cps=cpsFor(S.n);
   S.qi=0;S.vex=90;S.life={fifty:false,lab:false,clue:false};
@@ -971,7 +996,14 @@ $("lockBtn").onclick=()=>{
 function lastCP(i){let c=0;S.cps.forEach(k=>{if(k<=i)c=k;});return c;}
 
 function win(){
-  S.vex=0;if(S.strand!=="MIX")S.beaten[S.subject+S.grade+S.strand]=true;updateHeader();renderLadder();saveGame();confetti();
+  S.vex=0;updateHeader();renderLadder();confetti();
+  if(S.boss){
+    S.beaten["MASTER"]=true;saveGame();
+    showModal("win","MASTER OF ALL!",vexSVG("beaten"),"Impossible! You have mastered EVERYTHING!","You answered all 60 and defeated Dr. Vex\u2019s ultimate challenge \u2014 a true Master of Minds!",
+      [["Play again",()=>startBoss()],["Back to menu",()=>{hideModal();S.boss=false;buildSubjectSelect();}]]);
+    return;
+  }
+  if(S.strand!=="MIX")S.beaten[S.subject+S.grade+S.strand]=true;saveGame();
   const label=S.strand==="MIX"?"the Mixed Review":("Strand "+S.strand);
   showModal("win","YOU WIN!",vexSVG("beaten"),
     VEX.lose[Math.floor(Math.random()*VEX.lose.length)],
@@ -982,7 +1014,7 @@ function lose(cp){
   S.qi=cp;S.vex=Math.max(0,Math.round(90*(1-cp/S.n)));S.life={fifty:false,lab:false,clue:false};updateHeader();saveGame();
   const msg=cp===0?"You fall to the bottom. Lifelines refilled — try again!":"You drop to your safe rung "+(cp+1)+". Lifelines refilled.";
   showModal("lose","You fell!",vexSVG("glee"),"Dr. Vex cackles.",msg,
-    [["Try again",()=>{hideModal();renderQuestion();}],["Pick another strand",()=>{hideModal();buildStrandSelect(S.grade);}]]);
+    [["Try again",()=>{hideModal();renderQuestion();}],S.boss?["Back to menu",()=>{hideModal();S.boss=false;buildSubjectSelect();}]:["Pick another strand",()=>{hideModal();buildStrandSelect(S.grade);}]]);
 }
 function showModal(kind,title,faceSVG,vexline,body,btns){
   overlay.innerHTML="";
@@ -993,7 +1025,7 @@ function showModal(kind,title,faceSVG,vexline,body,btns){
   m.appendChild(bar);overlay.appendChild(m);overlay.classList.remove("hidden");
 }
 function hideModal(){overlay.classList.add("hidden");overlay.innerHTML="";}
-$("quitBtn").onclick=()=>{saveGame();buildStrandSelect(S.grade);};
+$("quitBtn").onclick=()=>{saveGame();if(S.boss){S.boss=false;buildSubjectSelect();}else buildStrandSelect(S.grade);};
 
 function renderLadder(){
   const L=$("ladder");L.innerHTML="";
