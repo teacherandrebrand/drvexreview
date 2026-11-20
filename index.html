@@ -67,6 +67,9 @@
   .scard .chk{margin-left:auto;color:var(--green);font-weight:800;font-size:20px}
   .scard.mix{grid-column:1 / -1;justify-content:center;border-style:dashed;box-shadow:none}
   .scard.mix .badge{background:#fff}
+  .scard.gauntlet{grid-column:1 / -1;background:var(--hl);border-width:3px}
+  .scard.gauntlet .badge{background:#fff;color:var(--red);font-size:16px}
+  .scard.gauntlet .st{color:var(--red)}
 
   .backlink{display:inline-block;margin:4px 0 12px;color:var(--blue);cursor:pointer;font-weight:700;font-size:14px;text-decoration:underline}
 
@@ -192,7 +195,7 @@
   <section id="strandScreen" class="screen hidden">
     <span class="backlink" id="toGrades">← Change grade</span>
     <div class="section-h" id="strandTitle">Grade 6: choose a strand</div>
-    <div class="section-sub">Beat Dr. Vex in each strand. A ✓ means you’ve topped that ladder.</div>
+    <div class="section-sub">Beat Dr. Vex in each strand, then try the Gauntlet. A ✓ means you’ve topped that ladder.</div>
     <div class="strandgrid" id="strandGrid"></div>
   </section>
 
@@ -1080,11 +1083,18 @@ function vexSVG(mood){
 }
 
 const BASE=[100,200,300,500,1000,2000,4000,8000,16000,32000];
-function pointsFor(n){const a=[];for(let i=0;i<n;i++){a.push(BASE[n===1?9:Math.round(i*9/(n-1))]);}return a;}
+const NICE=[1,1.2,1.5,2,2.5,3,4,5,6,8];
+function niceUp(v){let e=Math.pow(10,Math.floor(Math.log10(v)));for(;;){for(const m of NICE){if(m*e>=v)return Math.round(m*e);}e*=10;}}
+function pointsFor(n){
+  if(n<=10){const a=[];for(let i=0;i<n;i++){a.push(BASE[n===1?9:Math.round(i*9/(n-1))]);}return a;}
+  const top=n<=15?50000:n<=30?250000:1000000,a=[];
+  for(let i=0;i<n;i++){const raw=100*Math.pow(top/100,i/(n-1));let v;if(n<=30){v=niceUp(raw*0.999);if(a.length&&v<=a[a.length-1])v=niceUp(a[a.length-1]+1);}else{const e=Math.pow(10,Math.floor(Math.log10(raw))-1);v=Math.round(raw/e)*e;if(a.length&&v<=a[a.length-1])v=a[a.length-1]+e;}a.push(v);}
+  a[n-1]=top;return a;
+}
 function cpsFor(n){const set=new Set([0,Math.floor(n/3),Math.floor(2*n/3)]);return [...set].sort((x,y)=>x-y);}
 
 const S={subject:null,grade:null,strand:null,bank:null,points:[],cps:[],n:0,qi:0,pick:null,removed:[],
-  display:[],correctIdx:0,life:{fifty:false,lab:false,clue:false},vex:90,phase:"menu",boss:false,beaten:{}};
+  display:[],correctIdx:0,life:{fifty:false,lab:false,clue:false},vex:90,phase:"menu",boss:false,gauntlet:false,beaten:{}};
 const SAVEKEY="duelofminds_combined_v1";
 
 const $=id=>document.getElementById(id);
@@ -1124,7 +1134,7 @@ function buildMenu(){
   const grid=$("gradeGrid");grid.innerHTML="";
   Object.keys(GR()).forEach(n=>{
     const g=GR()[n],letters=Object.keys(g);
-    const wins=letters.filter(k=>S.beaten[S.subject+n+k]).length;
+    const wins=letters.filter(k=>S.beaten[S.subject+n+k]).length,gWon=S.beaten["G|"+S.subject+"|"+n];
     let numLabel,sub,desc;
     if(S.subject==="math"){
       numLabel="Grade "+n;
@@ -1150,7 +1160,8 @@ function buildMenu(){
     }
     const b=document.createElement("button");b.className="gcard";
     b.innerHTML="<div class='num'>"+numLabel+"</div><div class='sub'>"+sub+"</div><div class='desc'>"+desc+"</div>"
-      +(wins?"<div class='beat'>✓ "+wins+"/"+letters.length+" strands beaten</div>":"");
+      +(wins?"<div class='beat'>✓ "+wins+"/"+letters.length+" strands beaten</div>":"")
+      +(gWon?"<div class='beat'>✓ Gauntlet</div>":"");
     b.onclick=()=>buildStrandSelect(n);
     grid.appendChild(b);
   });
@@ -1175,10 +1186,49 @@ function buildStrandSelect(n){
   mix.innerHTML="<span class='badge'>?</span><span><span class='st'>Mixed Review</span><br><span class='sd'>Random questions from every strand</span></span>";
   mix.onclick=()=>startStrand(n,"MIX");
   grid.appendChild(mix);
+  const gt=document.createElement("button");gt.className="scard gauntlet";
+  gt.innerHTML="<span class='badge'>G</span><span><span class='st'>The Gauntlet</span><br><span class='sd'>"+gauntletDesc(n)+" · up to 30 questions</span></span>"
+    +(S.beaten["G|"+S.subject+"|"+n]?"<span class='chk'>✓</span>":"");
+  gt.onclick=()=>startGauntlet(n);
+  grid.appendChild(gt);
   $("toGrades").onclick=buildMenu;
   show(strandScreen);
 }
 
+const ENG_LADDERS=[["Language 6 & 7","Language 8","ENL1W"],["ESLCO","ESLDO","ESLEO"]];
+function levelsUpTo(n){
+  if(SUBJECTS[S.subject].courseMode){const L=ENG_LADDERS.find(l=>l.includes(n));return L.slice(0,L.indexOf(n)+1);}
+  return Object.keys(GR()).filter(k=>+k<=+n).sort((a,b)=>a-b);
+}
+function levelName(k){return SUBJECTS[S.subject].courseMode?k:(S.subject==="math"&&+k===9?"MTH1W":"Grade "+k);}
+function gauntletDesc(n){
+  const lv=levelsUpTo(n),lower=lv.slice(0,-1);
+  if(!lower.length)return "Every strand of "+levelName(n)+" in one long climb";
+  if(SUBJECTS[S.subject].courseMode)return levelName(n)+" questions plus "+lower.join(" and ");
+  return levelName(n)+" questions plus Grade"+(lower.length>1?"s ":" ")+lower[0]+(lower.length>1?"–"+lower[lower.length-1]:"");
+}
+function levelPool(k){let all=[];Object.keys(GR()[k]).forEach(s=>{all=all.concat(GR()[k][s].bank.map(q=>Object.assign({},q)));});return all;}
+function buildGauntletBank(n){
+  const seen=new Set(),uniq=arr=>arr.filter(q=>!seen.has(q.q)&&seen.add(q.q));
+  const own=uniq(shuffle(levelPool(n)));let lower=[];
+  levelsUpTo(n).slice(0,-1).forEach(k=>{lower=lower.concat(levelPool(k));});
+  lower=uniq(shuffle(lower));
+  if(!lower.length)return own.slice(0,30);
+  let b=Math.min(15,lower.length),a=Math.min(own.length,30-b);b=Math.min(lower.length,30-a);
+  return shuffle(own.slice(0,a).concat(lower.slice(0,b)));
+}
+function startGauntlet(n){
+  S.grade=n;S.strand="GAUNTLET";S.boss=false;S.gauntlet=true;$("quitBtn").textContent="Back to strands";
+  S.bank=buildGauntletBank(n);
+  S.n=S.bank.length;S.points=pointsFor(S.n);S.cps=cpsFor(S.n);
+  S.qi=0;S.vex=95;S.life={fifty:false,lab:false,clue:false};
+  $("subjPill").textContent=SUBJECTS[S.subject].name;
+  $("gradePill").textContent=levelName(n);
+  $("strandPill").textContent="Gauntlet · "+S.n+" questions";
+  show(game);
+  say("The Gauntlet! "+S.n+" questions from this level and everything before it. Did you forget what you learned last year? I hope so.","");
+  renderQuestion();
+}
 function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
 function buildMixBank(n){
   let all=[];Object.keys(GR()[n]).forEach(k=>{all=all.concat(GR()[n][k].bank.map(q=>Object.assign({},q)));});
@@ -1190,7 +1240,7 @@ function poolAll(){
   return all;
 }
 function startBoss(){
-  S.boss=true;S.subject=null;S.grade=null;S.strand="MASTER";
+  S.boss=true;S.gauntlet=false;S.subject=null;S.grade=null;S.strand="MASTER";
   S.bank=shuffle(poolAll()).slice(0,60);
   S.n=S.bank.length;S.points=pointsFor(S.n);S.cps=cpsFor(S.n);
   S.qi=0;S.vex=99;S.life={fifty:false,lab:false,clue:false};
@@ -1203,7 +1253,7 @@ function startBoss(){
   renderQuestion();
 }
 function startStrand(n,letter){
-  S.grade=n;S.strand=letter;S.boss=false;$("quitBtn").textContent="Back to strands";
+  S.grade=n;S.strand=letter;S.boss=false;S.gauntlet=false;$("quitBtn").textContent="Back to strands";
   S.bank=letter==="MIX"?buildMixBank(n):shuffle(GR()[n][letter].bank.map(q=>Object.assign({},q)));
   S.n=S.bank.length;S.points=pointsFor(S.n);S.cps=cpsFor(S.n);
   S.qi=0;S.vex=90;S.life={fifty:false,lab:false,clue:false};
@@ -1310,6 +1360,12 @@ function win(){
     S.beaten["MASTER"]=true;saveGame();
     showModal("win","MASTER OF ALL!",vexSVG("beaten"),"Impossible! You have mastered EVERYTHING!","You answered all 60 and defeated Dr. Vex\u2019s ultimate challenge. A true Master of Minds!",
       [["Play again",()=>{hideModal();startBoss();}],["Back to menu",()=>{hideModal();S.boss=false;buildSubjectSelect();}]]);
+    return;
+  }
+  if(S.gauntlet){
+    S.beaten["G|"+S.subject+"|"+S.grade]=true;saveGame();
+    showModal("win","GAUNTLET SURVIVED!",vexSVG("beaten"),"How? You remembered EVERYTHING?","You beat all "+S.n+" questions in the <b>"+levelName(S.grade)+" Gauntlet</b> and scored <b>"+S.points[S.n-1].toLocaleString()+" points</b>!",
+      [["Play again",()=>{hideModal();startGauntlet(S.grade);}],["Pick another strand",()=>{hideModal();buildStrandSelect(S.grade);}]]);
     return;
   }
   if(S.strand!=="MIX")S.beaten[S.subject+S.grade+S.strand]=true;saveGame();
